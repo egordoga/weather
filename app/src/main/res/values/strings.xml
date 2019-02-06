@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">Weather</string>
+    <string name="weather_in">Weather in</string>
+    <string name="city">City</string>
+    <string name="mm_hg">mm Hg</string>
+    <string name="wrong">Something wrong. Try again</string>
+    <string name="minutes">10 minutes yet</string>
+</resources>
