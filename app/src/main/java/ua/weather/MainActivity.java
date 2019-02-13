@@ -2,12 +2,12 @@ package ua.weather;
 
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.support.v4.app.FragmentManager;
+import android.support.v4.app.FragmentTransaction;
 import android.support.v7.app.AppCompatActivity;
 import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.AutoCompleteTextView;
-import android.widget.FrameLayout;
-import android.widget.ImageView;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
@@ -21,6 +21,8 @@ import java.util.HashMap;
 import java.util.Map;
 
 import okhttp3.OkHttpClient;
+import ua.weather.fragment.ContentFragment;
+import ua.weather.fragment.ErrorFragment;
 import ua.weather.rest.ApiCall;
 
 /**
@@ -30,24 +32,20 @@ import ua.weather.rest.ApiCall;
 
 public class MainActivity extends AppCompatActivity {
 
-    private TextView txtWeather;
-    private TextView txtAnsw;
-    private TextView txtTemp;
-    private TextView txtPressure;
-    private TextView txtMm;
-    private TextView txtCelsius;
-    private TextView txtError;
-    private ImageView picture;
-    private AutoCompleteTextView actvCityChoice;
-    private ProgressBar loading;
-    private FrameLayout content;
-    private FrameLayout error;
+
     String[] cities = {"Vinnytsya", "Poltava", "Mykolayiv", "Chernihiv", "Cherkasy", "Sumy", "Lviv",
             "Kherson", "Rivne", "Ivano-Frankivsk"};
 
+    private AutoCompleteTextView actvCityChoice;
+    private ProgressBar loading;
     private OkHttpClient client;
     private String city;
     private Map<String, Long> mapCheckTime = new HashMap<>();
+    private Map<String, String> data = new HashMap<>(); //можно было сделать и объектом
+    private ErrorFragment errorFragment;
+    private ContentFragment contentFragment;
+    private FragmentTransaction transaction;
+    private FragmentManager manager;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -55,18 +53,10 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         client = new OkHttpClient();
-
-        txtWeather = findViewById(R.id.tv_weather);
-        txtAnsw = findViewById(R.id.tv_answer);
-        txtPressure = findViewById(R.id.tv_pres);
-        txtTemp = findViewById(R.id.tv_temp);
-        txtCelsius = findViewById(R.id.tv_cels);
-        txtMm = findViewById(R.id.tv_mm);
-        txtError = findViewById(R.id.tv_error);
-        picture = findViewById(R.id.iv_pict);
+        errorFragment = new ErrorFragment();
+        contentFragment = new ContentFragment();
+        manager = getSupportFragmentManager();
         loading = findViewById(R.id.pb_loading);
-        content = findViewById(R.id.fl_content);
-        error = findViewById(R.id.fl_error);
         actvCityChoice = findViewById(R.id.actv_city);
 
         ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.select_dialog_item, cities);
@@ -84,15 +74,17 @@ public class MainActivity extends AppCompatActivity {
                 URL url = ApiCall.getURL(city);
                 new QueryTask().execute(url);
             } else {
-                txtError.setText(getString(R.string.minutes));
-                showErrorFrame();
+                boolean b = showErrorFrame(getString(R.string.minutes));
+                if (b) {
+                    errorFragment.updateMessage(getString(R.string.minutes));
+                }
             }
 
             actvCityChoice.setText("");
         });
     }
 
-    //Требование API сервера. Запрос на один город не чаще раз в 10 минут
+    //Требование API сервера. Запрос на один город не чаще одного раза в 10 минут
     private boolean checkMinutes() {
         if (mapCheckTime.get(city) == null) {
             return true;
@@ -100,14 +92,36 @@ public class MainActivity extends AppCompatActivity {
         return (mapCheckTime.get(city)) + (1000 * 60 * 10) < System.currentTimeMillis();
     }
 
-    private void showContentFrame() {
-        content.setVisibility(View.VISIBLE);
-        error.setVisibility(View.INVISIBLE);
+    private boolean showContentFrame() {
+        if (errorFragment.isAdded()) {
+            transaction = manager.beginTransaction();
+            transaction.replace(R.id.fl_frame, contentFragment, ContentFragment.TAG);
+            transaction.commit();
+            return false;
+        } else if (manager.findFragmentByTag(ContentFragment.TAG) == null) {
+            transaction = manager.beginTransaction();
+            transaction.add(R.id.fl_frame, contentFragment, ContentFragment.TAG);
+            transaction.commit();
+            return false;
+        }
+        return true;
     }
 
-    private void showErrorFrame() {
-        content.setVisibility(View.INVISIBLE);
-        error.setVisibility(View.VISIBLE);
+    private boolean showErrorFrame(String message) {
+        if (contentFragment.isAdded()) {
+            transaction = manager.beginTransaction();
+            transaction.replace(R.id.fl_frame, errorFragment, ErrorFragment.TAG);
+            transaction.commit();
+            errorFragment.errStr = message;
+            return false;
+        } else if (manager.findFragmentByTag(ErrorFragment.TAG) == null) {
+            transaction = manager.beginTransaction();
+            transaction.add(R.id.fl_frame, errorFragment, ErrorFragment.TAG);
+            transaction.commit();
+            errorFragment.errStr = message;
+            return false;
+        }
+        return true;
     }
 
     class QueryTask extends AsyncTask<URL, Void, String> {
@@ -131,6 +145,7 @@ public class MainActivity extends AppCompatActivity {
         protected void onPostExecute(String response) {
             // странные названия переменных таковы в приходящем объекте
             loading.setVisibility(View.INVISIBLE);
+            boolean noChange;
 
             if (response != null && !"".equals(response)) {
                 try {
@@ -144,33 +159,31 @@ public class MainActivity extends AppCompatActivity {
                     String strCity = getString(R.string.weather_in) + " " + city;
                     String strWeather = main + ", " + description;
 
-                    txtAnsw.setText(strCity);
-                    txtWeather.setText(strWeather);
-                    txtTemp.setText(temp);
-                    txtPressure.setText(pressure);
-                    txtCelsius.setVisibility(View.VISIBLE);
-                    txtMm.setVisibility(View.VISIBLE);
+                    data.put("main", main);
+                    data.put("description", description);
+                    data.put("temp", temp);
+                    data.put("pressure", pressure);
+                    data.put("strCity", strCity);
+                    data.put("strWeather", strWeather);
 
-                    switch (main) {
-                        case "Clear":
-                            picture.setImageResource(R.drawable.sunny);
-                            break;
-                        case "Snow":
-                            picture.setImageResource(R.drawable.snow);
-                            break;
-                        case "Rain":
-                            picture.setImageResource(R.drawable.rain);
-                            break;
-                        case "Clouds":
-                            picture.setImageResource(R.drawable.overcast);
+                    contentFragment.frData = data;
+
+                    noChange = showContentFrame();
+                    if (noChange) {
+                        contentFragment.updateData(data);
                     }
-                    showContentFrame();
                 } catch (JSONException e) {
+                    noChange = showErrorFrame(getString(R.string.wrong));
+                    if (noChange) {
+                        errorFragment.updateMessage(getString(R.string.wrong));
+                    }
                     e.printStackTrace();
                 }
             } else {
-                txtError.setText(getString(R.string.wrong));
-                showErrorFrame();
+                noChange = showErrorFrame(getString(R.string.wrong));
+                if (noChange) {
+                    errorFragment.updateMessage(getString(R.string.wrong));
+                }
             }
             mapCheckTime.put(city, System.currentTimeMillis());
         }
